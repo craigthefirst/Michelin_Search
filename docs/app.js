@@ -16,6 +16,7 @@ const state = {
   userRatings: JSON.parse(localStorage.getItem('co_user_ratings') || '{}'),
   activeTab: 'browse',
   topK: 6,
+  recLimit: 6,
   selectedRestaurantId: null,
   transformersClip: null,
   isClipLoading: false
@@ -377,105 +378,199 @@ function scoreRecommendations(ratings) {
 }
 
 // ==========================================
-// Chart Drawing Helpers (HTML5 Canvas)
+// Chart Drawing Helpers (HTML5 Canvas - High-DPI Crisp Rendering)
 // ==========================================
 
 function drawHDRChart(canvas, pdfGrid, expectedRating) {
   if (!canvas || !pdfGrid) return;
+
+  // High-DPI (Retina) Canvas Configuration (supersample at least 2x)
+  const dpr = Math.max(window.devicePixelRatio || 1, 2);
+  const rect = canvas.getBoundingClientRect();
+  const displayWidth = rect.width > 20 ? rect.width : (canvas.parentElement ? canvas.parentElement.clientWidth - 32 : 650);
+  const displayHeight = 150;
+
+  canvas.width = Math.round(displayWidth * dpr);
+  canvas.height = Math.round(displayHeight * dpr);
+  canvas.style.width = `${displayWidth}px`;
+  canvas.style.height = `${displayHeight}px`;
+
   const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, displayWidth, displayHeight);
 
-  ctx.clearRect(0, 0, w, h);
+  // Layout metrics
+  const padLeft = 36;
+  const padRight = 36;
+  const padBottom = 28;
+  const padTop = 26;
+  const plotW = displayWidth - padLeft - padRight;
+  const plotH = displayHeight - padTop - padBottom;
 
-  // Find max value in grid for scaling
+  // Maximum value for scaling with a 5% breathing ceiling
   let maxVal = 0;
   for (let i = 0; i < pdfGrid.length; i++) {
     if (pdfGrid[i] > maxVal) maxVal = pdfGrid[i];
   }
   if (maxVal === 0) maxVal = 1;
+  maxVal *= 1.05;
 
-  const padLeft = 24;
-  const padRight = 16;
-  const padBottom = 20;
-  const padTop = 10;
-  const plotW = w - padLeft - padRight;
-  const plotH = h - padTop - padBottom;
-
-  // Grid lines
-  ctx.strokeStyle = '#e8dfd7';
+  // 1. Subtle horizontal background gridlines
+  ctx.strokeStyle = '#f0e9e2';
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(padLeft, h - padBottom);
-  ctx.lineTo(w - padRight, h - padBottom);
-  ctx.stroke();
+  ctx.setLineDash([3, 3]);
+  [0.25, 0.5, 0.75].forEach(ratio => {
+    const y = padTop + plotH * (1 - ratio);
+    ctx.beginPath();
+    ctx.moveTo(padLeft, y);
+    ctx.lineTo(displayWidth - padRight, y);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
 
-  // Draw area curve
-  ctx.beginPath();
-  ctx.moveTo(padLeft, h - padBottom);
-
+  // Compute smooth curve points
+  const points = [];
   for (let i = 0; i < pdfGrid.length; i++) {
     const x = padLeft + (i / (pdfGrid.length - 1)) * plotW;
-    const y = (h - padBottom) - (pdfGrid[i] / maxVal) * plotH;
-    ctx.lineTo(x, y);
+    const y = (padTop + plotH) - (pdfGrid[i] / maxVal) * plotH;
+    points.push({ x, y });
   }
-  ctx.lineTo(padLeft + plotW, h - padBottom);
+
+  // 2. Draw smooth filled area with gradient
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, padTop + plotH);
+  ctx.lineTo(points[0].x, points[0].y);
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const xc = (points[i].x + points[i + 1].x) / 2;
+    const yc = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+  }
+  ctx.quadraticCurveTo(
+    points[points.length - 1].x,
+    points[points.length - 1].y,
+    points[points.length - 1].x,
+    points[points.length - 1].y
+  );
+  ctx.lineTo(points[points.length - 1].x, padTop + plotH);
   ctx.closePath();
 
-  const grad = ctx.createLinearGradient(0, padTop, 0, h - padBottom);
-  grad.addColorStop(0, 'rgba(239, 106, 71, 0.45)');
-  grad.addColorStop(1, 'rgba(239, 106, 71, 0.05)');
-  ctx.fillStyle = grad;
+  const fillGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+  fillGrad.addColorStop(0, 'rgba(239, 106, 71, 0.45)');
+  fillGrad.addColorStop(0.65, 'rgba(239, 106, 71, 0.16)');
+  fillGrad.addColorStop(1, 'rgba(239, 106, 71, 0.02)');
+  ctx.fillStyle = fillGrad;
   ctx.fill();
 
-  // Draw outline
+  // 3. Draw smooth curve stroke
   ctx.beginPath();
-  for (let i = 0; i < pdfGrid.length; i++) {
-    const x = padLeft + (i / (pdfGrid.length - 1)) * plotW;
-    const y = (h - padBottom) - (pdfGrid[i] / maxVal) * plotH;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 0; i < points.length - 1; i++) {
+    const xc = (points[i].x + points[i + 1].x) / 2;
+    const yc = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
   }
+  ctx.quadraticCurveTo(
+    points[points.length - 1].x,
+    points[points.length - 1].y,
+    points[points.length - 1].x,
+    points[points.length - 1].y
+  );
   ctx.strokeStyle = '#ef6a47';
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2.4;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   ctx.stroke();
 
-  // Draw predicted rating indicator line
+  // 4. Baseline
+  ctx.strokeStyle = '#d9cec4';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop + plotH);
+  ctx.lineTo(displayWidth - padRight, padTop + plotH);
+  ctx.stroke();
+
+  // 5. Predicted rating vertical marker with styled pill badge
   if (expectedRating >= 1.0 && expectedRating <= 5.0) {
     const rx = padLeft + ((expectedRating - 1.0) / 4.0) * plotW;
+
     ctx.strokeStyle = '#d94f33';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([4, 3]);
     ctx.beginPath();
-    ctx.moveTo(rx, padTop);
-    ctx.lineTo(rx, h - padBottom);
+    ctx.moveTo(rx, padTop + 14);
+    ctx.lineTo(rx, padTop + plotH);
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Floating pill badge
+    const badgeText = `Predicted: ${expectedRating.toFixed(2)} ★`;
+    ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const textMetrics = ctx.measureText(badgeText);
+    const pillW = textMetrics.width + 16;
+    const pillH = 20;
+    const pillX = Math.max(padLeft, Math.min(displayWidth - padRight - pillW, rx - pillW / 2));
+    const pillY = padTop - 10;
+
+    // Pill background
     ctx.fillStyle = '#d94f33';
-    ctx.font = 'bold 10px sans-serif';
-    ctx.fillText(`${expectedRating.toFixed(2)} ★`, rx - 12, padTop + 10);
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(pillX, pillY, pillW, pillH, 6);
+    } else {
+      ctx.rect(pillX, pillY, pillW, pillH);
+    }
+    ctx.fill();
+
+    // Pill text
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeText, pillX + pillW / 2, pillY + pillH / 2);
   }
 
-  // Rating axis labels (1★ to 5★)
+  // 6. Rating Axis Ticks & Labels (1.0 ★ to 5.0 ★)
   ctx.fillStyle = '#69737d';
-  ctx.font = '10px sans-serif';
+  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+
   for (let star = 1; star <= 5; star++) {
     const sx = padLeft + ((star - 1) / 4.0) * plotW;
-    ctx.fillText(`${star}★`, sx - 6, h - 4);
+
+    ctx.strokeStyle = '#d9cec4';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(sx, padTop + plotH);
+    ctx.lineTo(sx, padTop + plotH + 4);
+    ctx.stroke();
+
+    ctx.fillText(`${star}.0 ★`, sx, padTop + plotH + 6);
   }
+
+  ctx.restore();
 }
 
 function drawRadarChart(canvas, sentiment) {
   if (!canvas || !sentiment) return;
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  const cx = w / 2;
-  const cy = h / 2;
-  const r = Math.min(cx, cy) - 26;
+  const dpr = Math.max(window.devicePixelRatio || 1, 2);
+  const displayW = 240;
+  const displayH = 240;
 
-  ctx.clearRect(0, 0, w, h);
+  canvas.width = Math.round(displayW * dpr);
+  canvas.height = Math.round(displayH * dpr);
+  canvas.style.width = `${displayW}px`;
+  canvas.style.height = `${displayH}px`;
+
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, displayW, displayH);
+
+  const cx = displayW / 2;
+  const cy = displayH / 2;
+  const r = Math.min(cx, cy) - 28;
 
   const aspects = [
     { label: 'Food', val: sentiment.food_quality || 0 },
@@ -506,7 +601,7 @@ function drawRadarChart(canvas, sentiment) {
 
   // Axes and Labels
   ctx.fillStyle = '#1f2328';
-  ctx.font = 'bold 10px sans-serif';
+  ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -518,8 +613,8 @@ function drawRadarChart(canvas, sentiment) {
     ctx.strokeStyle = '#e8dfd7';
     ctx.stroke();
 
-    const lx = cx + (r + 14) * Math.cos(a);
-    const ly = cy + (r + 14) * Math.sin(a);
+    const lx = cx + (r + 15) * Math.cos(a);
+    const ly = cy + (r + 15) * Math.sin(a);
     ctx.fillText(aspects[i].label, lx, ly);
   }
 
@@ -538,7 +633,7 @@ function drawRadarChart(canvas, sentiment) {
   ctx.fillStyle = 'rgba(239, 106, 71, 0.22)';
   ctx.fill();
   ctx.strokeStyle = '#ef6a47';
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2.4;
   ctx.stroke();
 
   // Data dots
@@ -552,6 +647,8 @@ function drawRadarChart(canvas, sentiment) {
     ctx.arc(x, y, 3.5, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  ctx.restore();
 }
 
 // ==========================================
@@ -582,7 +679,7 @@ function renderRestaurantCard(rest, scoreLabel = '', scoreValue = null, extraBad
 
   const imgHtml = repImg
     ? `<img src="${repImg}" class="co-card-image" alt="${escapeHtml(rest.restaurant_name)}" loading="lazy">`
-    : `<div class="co-card-image-placeholder">🍽️</div>`;
+    : `<div class="co-card-image-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2v20M2 12h12a4 4 0 0 1 4 4v6M6 2v6a2 2 0 0 1-2 2H2"/></svg></div>`;
 
   let scoreBoxHtml = '';
   if (scoreValue !== null) {
@@ -668,7 +765,7 @@ function renderRestaurantCard(rest, scoreLabel = '', scoreValue = null, extraBad
       ${rest.pdfGrid ? `
         <div class="co-chart-canvas-wrap">
           <div class="co-chart-title">Rating Probability Distribution (Mixture Density Network HDR)</div>
-          <canvas id="hdr-canvas-${rid}" width="500" height="120" style="width: 100%; height: 120px;"></canvas>
+          <canvas id="hdr-canvas-${rid}" class="co-hdr-canvas"></canvas>
         </div>
       ` : ''}
     </div>
@@ -969,13 +1066,29 @@ async function renderRecommendationsTab() {
   await loadMDNWeights();
 
   const recs = scoreRecommendations(state.userRatings);
-  const topRecs = recs.slice(0, 6);
+  const currentLimit = state.recLimit || 6;
+  const topRecs = recs.slice(0, currentLimit);
+
+  let loadMoreHtml = '';
+  if (recs.length > topRecs.length) {
+    loadMoreHtml = `
+      <div class="co-load-more-wrap">
+        <p class="co-load-more-count">Showing <b>${topRecs.length}</b> of <b>${recs.length}</b> recommended restaurants</p>
+        <div class="co-load-more-actions">
+          <button class="co-btn" onclick="loadMoreRecommendations(6)">Show 6 More</button>
+          <button class="co-btn co-btn-secondary" onclick="loadMoreRecommendations(18)">Show 18 More</button>
+          <button class="co-btn co-btn-secondary" onclick="loadAllRecommendations()">Show All (${recs.length})</button>
+        </div>
+      </div>
+    `;
+  }
 
   container.innerHTML = `
     <p class="co-section-desc" style="margin-bottom: 1.25rem;">
       Shortlist generated from your <b>${ratingsCount}</b> rating${ratingsCount > 1 ? 's' : ''} using the <b>Mixture Density Network (MDN)</b> Laplace mixture head.
     </p>
     ${topRecs.map(r => renderRestaurantCard(r, 'Predicted Rating', r.score)).join('')}
+    ${loadMoreHtml}
   `;
 
   // Draw HDR curves for each result
@@ -987,6 +1100,16 @@ async function renderRecommendationsTab() {
       }
     });
   });
+}
+
+function loadMoreRecommendations(step = 6) {
+  state.recLimit = (state.recLimit || 6) + step;
+  renderRecommendationsTab();
+}
+
+function loadAllRecommendations() {
+  state.recLimit = 9999;
+  renderRecommendationsTab();
 }
 
 // 5. My Rated Restaurants Tab
@@ -1119,9 +1242,25 @@ function debounce(func, wait) {
   };
 }
 
+// Redraw HDR curves crisply when the browser window is resized
+window.addEventListener('resize', debounce(() => {
+  if (state.activeTab === 'rec') {
+    const recs = scoreRecommendations(state.userRatings);
+    const topRecs = recs.slice(0, state.recLimit || 6);
+    topRecs.forEach(r => {
+      const canvas = document.getElementById(`hdr-canvas-${r.rest_id}`);
+      if (canvas && r.pdfGrid) {
+        drawHDRChart(canvas, r.pdfGrid, r.score);
+      }
+    });
+  }
+}, 200));
+
 // Make functions accessible from inline HTML onclicks
 window.switchTab = switchTab;
 window.toggleDetails = toggleDetails;
 window.switchSubTab = switchSubTab;
 window.setRating = setRating;
+window.loadMoreRecommendations = loadMoreRecommendations;
+window.loadAllRecommendations = loadAllRecommendations;
 
