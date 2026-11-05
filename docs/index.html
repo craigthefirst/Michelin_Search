@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calm Octopuses — Michelin Star NYC Explorer & Recommender</title>
+  <meta name="description" content="Explore Michelin-starred NYC restaurants with CLIP multimodal search, parsed menu items, aspect sentiment analysis, and personalized recommendations powered by a Mixture Density Network (MDN).">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐙</text></svg>">
+</head>
+<body>
+
+  <div class="co-container">
+    <!-- Hero / Header -->
+    <header class="co-hero">
+      <div class="co-brand">
+        <div class="co-brand-icon">🐙</div>
+        <h1 class="co-hero-title">Calm Octopuses</h1>
+      </div>
+      <p class="co-hero-subtitle">
+        Explore Michelin-starred and Bib Gourmand New York City restaurants. Combines representative images, parsed menus, customer reviews, aspect-based sentiment, CLIP semantic embeddings, and a trained Mixture Density Network for personalized recommendations.
+      </p>
+
+      <div class="co-metrics-row">
+        <span class="co-metric-pill">🏢 <b id="catalogCount">349</b> Restaurants</span>
+        <span class="co-metric-pill">🍽️ <b>9,089</b> Parsed Dishes</span>
+        <span class="co-metric-pill">📸 <b>1,745</b> Photos</span>
+        <span class="co-metric-pill">⭐ <b>1, 2 & 3</b> Michelin Stars</span>
+        <span class="co-metric-pill">📊 <b>DistilBERT</b> Aspect Sentiment</span>
+        <span class="co-metric-pill">🧠 <b>Pretrained MDN</b> Laplace HDR</span>
+      </div>
+    </header>
+
+    <!-- Navigation Pills -->
+    <nav class="co-tab-nav" id="tabNav" role="tablist">
+      <button class="co-tab-btn active" data-tab="browse" role="tab">Browse Restaurants</button>
+      <button class="co-tab-btn" data-tab="search" role="tab">Multimodal Search</button>
+      <button class="co-tab-btn" data-tab="dish" role="tab">Exact Dish Search</button>
+      <button class="co-tab-btn" data-tab="rec" role="tab">Recommended (MDN)</button>
+      <button class="co-tab-btn" data-tab="my-rest" role="tab">My Restaurants (<span id="myRestCount">0</span>)</button>
+      <button class="co-tab-btn" data-tab="overview" role="tab">Data Overview</button>
+    </nav>
+
+    <!-- TAB 1: BROWSE RESTAURANTS -->
+    <section class="co-tab-content active" id="tab-browse" role="tabpanel">
+      <div class="co-section-header">
+        <div class="co-eyebrow">Catalog</div>
+        <h2 class="co-section-title">Restaurant Browser</h2>
+        <p class="co-section-desc">Move through the full catalog, look at actual dishes and reviews, and leave 1–5 star ratings to shape your personalized recommendations.</p>
+      </div>
+
+      <!-- Filters -->
+      <div class="co-form-row">
+        <div class="co-form-group">
+          <label class="co-form-label" for="browseSearch">Search name or cuisine</label>
+          <input type="text" id="browseSearch" class="co-input" placeholder="e.g. Sushi, Le Bernardin, French...">
+        </div>
+        <div class="co-form-group" style="max-width: 200px;">
+          <label class="co-form-label" for="browseBorough">Borough</label>
+          <select id="browseBorough" class="co-select">
+            <option value="">All Boroughs</option>
+            <option value="Manhattan">Manhattan</option>
+            <option value="Brooklyn">Brooklyn</option>
+            <option value="Queens">Queens</option>
+          </select>
+        </div>
+        <div class="co-form-group" style="max-width: 220px;">
+          <label class="co-form-label" for="browseStars">Distinction</label>
+          <select id="browseStars" class="co-select">
+            <option value="">All Distinctions</option>
+            <option value="3">3 Michelin Stars</option>
+            <option value="2">2 Michelin Stars</option>
+            <option value="1">1 Michelin Star</option>
+            <option value="bib">Bib Gourmand</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1rem; font-size: 0.88rem; font-weight: 700; color: var(--co-text-muted);" id="browseMatchCount">
+        Loading catalog...
+      </div>
+
+      <div id="browseResults"></div>
+    </section>
+
+    <!-- TAB 2: MULTIMODAL SEARCH -->
+    <section class="co-tab-content" id="tab-search" role="tabpanel">
+      <div class="co-section-header">
+        <div class="co-eyebrow">Discover</div>
+        <h2 class="co-section-title">Multimodal Search</h2>
+        <p class="co-section-desc">Search across dishes, reviews, and restaurant profiles, or start with an image to explore the catalog visually.</p>
+      </div>
+
+      <div class="co-form-row">
+        <div class="co-form-group">
+          <label class="co-form-label" for="searchQuery">Enter a dish, description, or restaurant concept</label>
+          <input type="text" id="searchQuery" class="co-input" placeholder="e.g. crispy duck tasting menu, intimate omakase, handmade pasta...">
+        </div>
+        <div class="co-form-group" style="max-width: 200px;">
+          <label class="co-form-label" for="searchScope">Search Scope</label>
+          <select id="searchScope" class="co-select">
+            <option value="All">All</option>
+            <option value="Menu items">Menu items</option>
+            <option value="Reviews">Reviews</option>
+            <option value="Bios">Bios</option>
+          </select>
+        </div>
+        <div class="co-form-group" style="max-width: 140px;">
+          <label class="co-form-label" for="searchTopK">Top Results</label>
+          <input type="number" id="searchTopK" class="co-input" min="3" max="25" value="6">
+        </div>
+      </div>
+
+      <div id="searchResults">
+        <p class="co-section-desc">Type a search query above to explore restaurants across the NYC Michelin catalog.</p>
+      </div>
+    </section>
+
+    <!-- TAB 3: EXACT DISH SEARCH -->
+    <section class="co-tab-content" id="tab-dish" role="tabpanel">
+      <div class="co-section-header">
+        <div class="co-eyebrow">Precision</div>
+        <h2 class="co-section-title">Exact Dish Search</h2>
+        <p class="co-section-desc">Use a direct dish or ingredient lookup when you want to see which restaurants explicitly list a specific preparation on their parsed menu.</p>
+      </div>
+
+      <div class="co-form-row">
+        <div class="co-form-group">
+          <label class="co-form-label" for="dishQuery">Enter exact dish name or ingredient</label>
+          <input type="text" id="dishQuery" class="co-input" placeholder="e.g. wagyu, truffle, foie gras, uni, carbonara, caviar...">
+        </div>
+      </div>
+
+      <div id="dishResults">
+        <p class="co-section-desc">Enter an ingredient or dish name above to search across all parsed menu items.</p>
+      </div>
+    </section>
+
+    <!-- TAB 4: RECOMMENDED (MDN) -->
+    <section class="co-tab-content" id="tab-rec" role="tabpanel">
+      <div class="co-section-header">
+        <div class="co-eyebrow">Taste Profile</div>
+        <h2 class="co-section-title">Personalized Recommendations</h2>
+        <p class="co-section-desc">Turn your ratings into a restaurant shortlist, with predicted affinity and uncertainty pulled directly from the <b>Mixture Density Network (MDN)</b> model.</p>
+      </div>
+
+      <div id="recResults"></div>
+    </section>
+
+    <!-- TAB 5: MY RESTAURANTS -->
+    <section class="co-tab-content" id="tab-my-rest" role="tabpanel">
+      <div class="co-section-header">
+        <div class="co-eyebrow">Collection</div>
+        <h2 class="co-section-title">My Rated Restaurants</h2>
+        <p class="co-section-desc">Restaurants you have rated to guide your recommendation model.</p>
+      </div>
+
+      <div id="myRestResults"></div>
+    </section>
+
+    <!-- TAB 6: DATA OVERVIEW -->
+    <section class="co-tab-content" id="tab-overview" role="tabpanel">
+      <div class="co-section-header">
+        <div class="co-eyebrow">Coverage</div>
+        <h2 class="co-section-title">Data Overview</h2>
+        <p class="co-section-desc">Inspect how complete the current catalog is, including which source files feed the app and model specifications.</p>
+      </div>
+
+      <div class="co-card">
+        <h3 style="font-size: 1.15rem; margin-bottom: 1rem;">Catalog Footprint</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+          <div class="co-score-box" style="flex-direction: column; align-items: flex-start;">
+            <span class="co-score-label">Total Restaurants</span>
+            <span class="co-score-value" id="statTotal">349</span>
+          </div>
+          <div class="co-score-box" style="flex-direction: column; align-items: flex-start;">
+            <span class="co-score-label">With Parsed Menus</span>
+            <span class="co-score-value" id="statMenus">306 (88%)</span>
+          </div>
+          <div class="co-score-box" style="flex-direction: column; align-items: flex-start;">
+            <span class="co-score-label">With Customer Reviews</span>
+            <span class="co-score-value" id="statReviews">349 (100%)</span>
+          </div>
+          <div class="co-score-box" style="flex-direction: column; align-items: flex-start;">
+            <span class="co-score-label">With Food/Interior Photos</span>
+            <span class="co-score-value" id="statImages">349 (100%)</span>
+          </div>
+          <div class="co-score-box" style="flex-direction: column; align-items: flex-start;">
+            <span class="co-score-label">With Chef / History Bios</span>
+            <span class="co-score-value" id="statBios">349 (100%)</span>
+          </div>
+        </div>
+
+        <h3 style="font-size: 1.15rem; margin-bottom: 0.75rem;">Model Architecture Specifications</h3>
+        <div style="font-size: 0.92rem; color: var(--co-text); line-height: 1.65;">
+          <p>• <b>Multimodal Retrieval:</b> 512-dimensional CLIP (<code>clip-vit-base-patch32</code>) mean-pooled restaurant profile vectors with cosine similarity matching.</p>
+          <p>• <b>Personalized Recommendations:</b> 4-layer Mixture Density Network (MDN) with batch normalization, trained on Yelp/Michelin user rating distributions. Outputs a Mixture of 3 Laplace distributions with uncertainty quantification (Highest Density Region).</p>
+          <p>• <b>Aspect-Based Sentiment Analysis:</b> Fine-grained review sentiment scored across Food Quality, Service, Ambiance, Value, and Wait Time using DistilBERT.</p>
+          <p>• <b>Client-side Deployment:</b> 100% static client-side execution hosted on GitHub Pages with zero server latency or cold starts.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+

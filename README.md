@@ -281,9 +281,41 @@ Generated, downloaded, or local-only:
 
 See `data/README.md` for the data policy.
 
+## 🌐 GitHub Pages Web App (Live Client-Side Demo)
+
+In addition to the local Streamlit application, Calm Octopuses can be viewed and run directly in any web browser on **GitHub Pages** with zero backend or server setup:
+
+- **100% In-Browser ML Inference:** Runs the pretrained Mixture Density Network (MDN) rating regression model and Laplace HDR uncertainty curves in JavaScript matching PyTorch outputs with $10^{-7}$ precision.
+- **Multimodal Semantic & Lexical Search:** Real-time semantic search over CLIP embeddings across all 349 NYC Michelin restaurants, dishes, reviews, and bios.
+- **Exact Dish & Ingredient Search:** Instant querying across 9,089 parsed menu preparations.
+- **Aspect-Based Review Sentiment:** Live interactive radar charts and progress bars for Food Quality, Service, Ambiance, Value, and Wait Time.
+- **Interactive Ratings & Shortlists:** Rate restaurants with 1–5 stars, stored persistently in browser storage, generating real-time shortlists with uncertainty curves.
+
+### Enabling GitHub Pages on Your Fork
+
+1. Go to your repository on GitHub.
+2. Click **Settings** → **Pages** (in the left sidebar).
+3. Under **Build and deployment**:
+   - **Source:** Select **Deploy from a branch**
+   - **Branch:** Select `main` and folder `/docs`
+   - Click **Save**.
+   *(Alternatively, choose **GitHub Actions** to deploy automatically via `.github/workflows/deploy-pages.yml`)*
+4. Your site will be published at:
+   ```text
+   https://<your-username>.github.io/<your-repo-name>/
+   ```
+
+### Regenerating Static Web Assets
+
+If you update source CSVs, re-train the MDN checkpoint, or add new embeddings, regenerate the static assets in `docs/`:
+
+```bash
+python export_static_site.py
+```
+
 ## Run
 
-Start the application:
+Start the local Streamlit application:
 
 ```bash
 streamlit run frontend.py
