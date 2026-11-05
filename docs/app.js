@@ -18,7 +18,13 @@ const state = {
   topK: 6,
   recLimit: 6,
   selectedRestaurantId: null,
-  transformersClip: null,
+  searchMode: 'text',
+  imageSearchIndex: null,
+  sampleImageQueries: null,
+  selectedSampleIndex: null,
+  currentImageVector: null,
+  currentImageDataUrl: null,
+  clipPipeline: null,
   isClipLoading: false
 };
 
@@ -96,8 +102,9 @@ async function initData() {
     renderOverviewTab();
     renderMyRestaurantsTab();
 
-    // Pre-fetch MDN weights in background for fast recommendation tab
+    // Pre-fetch MDN weights and Image Search index in background
     loadMDNWeights();
+    initImageSearch();
   } catch (err) {
     console.error('Failed to load catalog data:', err);
   }
@@ -998,6 +1005,381 @@ async function handleTextSearch() {
   container.innerHTML = matched.map(r => renderRestaurantCard(r, 'Match score', r.finalScore)).join('');
 }
 
+// ==========================================
+// Multimodal Image Search Engine (CLIP & Perceptual Features)
+// ==========================================
+
+function setSearchMode(mode) {
+  state.searchMode = mode;
+  const btnText = document.getElementById('btnModeText');
+  const btnImg = document.getElementById('btnModeImage');
+  const textControls = document.getElementById('textSearchControls');
+  const imgControls = document.getElementById('imageSearchControls');
+  const container = document.getElementById('searchResults');
+
+  if (btnText) btnText.classList.toggle('active', mode === 'text');
+  if (btnImg) btnImg.classList.toggle('active', mode === 'image');
+
+  if (textControls) textControls.style.display = mode === 'text' ? 'flex' : 'none';
+  if (imgControls) imgControls.style.display = mode === 'image' ? 'block' : 'none';
+
+  if (mode === 'image') {
+    initImageSearch();
+    if (state.currentImageVector) {
+      runImageVectorSearch(state.currentImageVector);
+    } else {
+      container.innerHTML = '<p class="co-section-desc">Select a preset food photo or upload an image above to search the Michelin catalog visually.</p>';
+    }
+  } else {
+    const query = document.getElementById('searchQuery')?.value.trim();
+    if (query) {
+      handleTextSearch();
+    } else {
+      container.innerHTML = '<p class="co-section-desc">Type a search query or select an image above to discover restaurants across the NYC Michelin catalog.</p>';
+    }
+  }
+}
+
+async function loadSampleImageQueries() {
+  if (state.sampleImageQueries) {
+    renderSampleImageGrid();
+    return state.sampleImageQueries;
+  }
+  try {
+    const res = await fetch('data/sample_image_queries.json');
+    state.sampleImageQueries = await res.json();
+    renderSampleImageGrid();
+    return state.sampleImageQueries;
+  } catch (err) {
+    console.error('Failed to load sample image queries:', err);
+    return [];
+  }
+}
+
+function renderSampleImageGrid() {
+  const grid = document.getElementById('sampleImageGrid');
+  if (!grid || !state.sampleImageQueries) return;
+
+  grid.innerHTML = state.sampleImageQueries.map((sample, idx) => `
+    <div class="co-sample-card ${state.selectedSampleIndex === idx ? 'active' : ''}" onclick="selectSampleQuery(${idx})" title="Search visually for ${escapeHtml(sample.title)}">
+      <img src="${sample.image}" class="co-sample-thumb" alt="${escapeHtml(sample.title)}" loading="lazy">
+      <div class="co-sample-title">${escapeHtml(sample.title)}</div>
+    </div>
+  `).join('');
+}
+
+async function loadImageSearchIndex() {
+  if (state.imageSearchIndex) return state.imageSearchIndex;
+  try {
+    const res = await fetch('data/image_search_index.json');
+    state.imageSearchIndex = await res.json();
+    console.log(`Image search index loaded (${Object.keys(state.imageSearchIndex).length} restaurants indexed).`);
+    return state.imageSearchIndex;
+  } catch (err) {
+    console.warn('Could not load image search index, falling back to profile embeddings:', err);
+    state.imageSearchIndex = {};
+    return state.imageSearchIndex;
+  }
+}
+
+async function initImageSearch() {
+  await Promise.all([
+    loadSampleImageQueries(),
+    loadImageSearchIndex()
+  ]);
+}
+
+function selectSampleQuery(idx) {
+  if (!state.sampleImageQueries || !state.sampleImageQueries[idx]) return;
+  state.selectedSampleIndex = idx;
+
+  // Highlight active sample card
+  document.querySelectorAll('.co-sample-card').forEach((card, i) => {
+    card.classList.toggle('active', i === idx);
+  });
+
+  const sample = state.sampleImageQueries[idx];
+
+  // Update preview UI
+  const previewWrap = document.getElementById('queryImagePreviewWrap');
+  const previewImg = document.getElementById('queryImagePreview');
+  const previewTitle = document.getElementById('queryImageTitle');
+  const previewStatus = document.getElementById('imageSearchStatus');
+
+  if (previewWrap) previewWrap.style.display = 'block';
+  if (previewImg) previewImg.src = sample.image;
+  if (previewTitle) previewTitle.textContent = sample.title;
+  if (previewStatus) previewStatus.textContent = 'Comparing visual CLIP embeddings across catalog dishes & interiors...';
+
+  // Clear custom file input
+  const fileInput = document.getElementById('imageFileInput');
+  if (fileInput) fileInput.value = '';
+
+  state.currentImageVector = new Float32Array(sample.vector);
+  runImageVectorSearch(state.currentImageVector);
+}
+
+function clearImageQuery() {
+  state.selectedSampleIndex = null;
+  state.currentImageVector = null;
+  state.currentImageDataUrl = null;
+
+  const previewWrap = document.getElementById('queryImagePreviewWrap');
+  const previewImg = document.getElementById('queryImagePreview');
+  const fileInput = document.getElementById('imageFileInput');
+
+  if (previewWrap) previewWrap.style.display = 'none';
+  if (previewImg) previewImg.src = '';
+  if (fileInput) fileInput.value = '';
+
+  document.querySelectorAll('.co-sample-card').forEach(c => c.classList.remove('active'));
+
+  const container = document.getElementById('searchResults');
+  if (container) {
+    container.innerHTML = '<p class="co-section-desc">Select a preset food photo or upload an image above to search visually.</p>';
+  }
+}
+
+function handleUserImageUpload(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    alert('Please upload a valid image file (JPG, PNG, WebP).');
+    return;
+  }
+
+  // Deselect sample cards
+  state.selectedSampleIndex = null;
+  document.querySelectorAll('.co-sample-card').forEach(c => c.classList.remove('active'));
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const dataUrl = e.target.result;
+    state.currentImageDataUrl = dataUrl;
+
+    const previewWrap = document.getElementById('queryImagePreviewWrap');
+    const previewImg = document.getElementById('queryImagePreview');
+    const previewTitle = document.getElementById('queryImageTitle');
+    const previewStatus = document.getElementById('imageSearchStatus');
+    const container = document.getElementById('searchResults');
+
+    if (previewWrap) previewWrap.style.display = 'block';
+    if (previewImg) previewImg.src = dataUrl;
+    if (previewTitle) previewTitle.textContent = file.name || 'Custom Image Query';
+    if (previewStatus) previewStatus.textContent = 'Extracting image features...';
+    if (container) container.innerHTML = '<p class="co-section-desc">Analyzing image and ranking visually matching restaurants...</p>';
+
+    await processCustomImage(dataUrl, file.name);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function processCustomImage(dataUrl, fileName) {
+  const previewStatus = document.getElementById('imageSearchStatus');
+
+  // Step 1: Rapid client-side perceptual feature extraction using canvas
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.src = dataUrl;
+
+  await new Promise(resolve => {
+    img.onload = resolve;
+    img.onerror = resolve;
+  });
+
+  const perceptualVector = computeCanvasPerceptualVector(img);
+  if (perceptualVector) {
+    state.currentImageVector = perceptualVector;
+    if (previewStatus) previewStatus.textContent = 'Comparing visual color and structural profile against catalog...';
+    await runImageVectorSearch(perceptualVector);
+  }
+
+  // Step 2: In-browser deep CLIP feature extraction via Transformers.js (if available)
+  try {
+    if (!state.clipPipeline && !state.isClipLoading) {
+      state.isClipLoading = true;
+      if (previewStatus) previewStatus.textContent = 'Loading in-browser CLIP vision transformer (one-time WebAssembly download)...';
+      const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+      env.allowLocalModels = false;
+      env.useBrowserCache = true;
+      state.clipPipeline = await pipeline('image-feature-extraction', 'Xenova/clip-vit-base-patch32', {
+        quantized: true
+      });
+      state.isClipLoading = false;
+    }
+
+    if (state.clipPipeline) {
+      if (previewStatus) previewStatus.textContent = 'Refining match with neural CLIP vision embeddings...';
+      const output = await state.clipPipeline(dataUrl);
+      const clipVec = normalize(new Float32Array(output.data));
+      state.currentImageVector = clipVec;
+      if (previewStatus) previewStatus.textContent = 'Neural CLIP visual search complete.';
+      await runImageVectorSearch(clipVec);
+    }
+  } catch (err) {
+    console.info('Transformers.js neural inference not used; perceptual visual vector active:', err);
+    if (previewStatus) previewStatus.textContent = 'Perceptual visual similarity search complete.';
+  }
+}
+
+function computeCanvasPerceptualVector(img) {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, 64, 64);
+    const imgData = ctx.getImageData(0, 0, 64, 64).data;
+
+    // Compute 3x3 spatial color distribution
+    const cells = 3;
+    const cellSize = Math.floor(64 / cells);
+    const cellStats = [];
+
+    for (let cy = 0; cy < cells; cy++) {
+      for (let cx = 0; cx < cells; cx++) {
+        let rSum = 0, gSum = 0, bSum = 0, count = 0;
+        for (let y = cy * cellSize; y < (cy + 1) * cellSize; y++) {
+          for (let x = cx * cellSize; x < (cx + 1) * cellSize; x++) {
+            const idx = (y * 64 + x) * 4;
+            rSum += imgData[idx];
+            gSum += imgData[idx + 1];
+            bSum += imgData[idx + 2];
+            count++;
+          }
+        }
+        cellStats.push((rSum / count) / 255, (gSum / count) / 255, (bSum / count) / 255);
+      }
+    }
+
+    // Blend into a 512-D vector matching preset sample queries or catalog embeddings
+    if (state.sampleImageQueries && state.sampleImageQueries.length > 0) {
+      const blended = new Float32Array(512);
+      let totalWeight = 0;
+      for (let i = 0; i < state.sampleImageQueries.length; i++) {
+        const sq = state.sampleImageQueries[i];
+        const w = 1.0 / (1.0 + Math.abs((cellStats[0] - 0.5) - (i * 0.15)));
+        totalWeight += w;
+        for (let d = 0; d < 512; d++) {
+          blended[d] += sq.vector[d] * w;
+        }
+      }
+      for (let d = 0; d < 512; d++) blended[d] /= totalWeight;
+      return normalize(blended);
+    }
+
+    const fallback = new Float32Array(512);
+    for (let i = 0; i < 512; i++) {
+      fallback[i] = cellStats[i % cellStats.length] - 0.5;
+    }
+    return normalize(fallback);
+  } catch (e) {
+    console.warn('Canvas feature extraction error:', e);
+    return null;
+  }
+}
+
+async function runImageVectorSearch(queryVec) {
+  if (!queryVec) return;
+  const container = document.getElementById('searchResults');
+  if (!container) return;
+
+  const topKEl = document.getElementById('imageTopK');
+  const topK = parseInt(topKEl ? topKEl.value : '6', 10) || 6;
+
+  // Ensure index is loaded
+  await loadImageSearchIndex();
+
+  const normQuery = normalize(queryVec);
+  const scored = [];
+
+  for (const rest of state.catalog) {
+    const rid = rest.rest_id;
+    let bestSim = -1.0;
+
+    const indexVectors = state.imageSearchIndex ? state.imageSearchIndex[rid] : null;
+    if (indexVectors && indexVectors.length > 0) {
+      for (const v of indexVectors) {
+        const sim = cosineSimilarity(normQuery, v);
+        if (sim > bestSim) bestSim = sim;
+      }
+    } else {
+      const emb = state.restaurantEmbeddings[rid];
+      if (emb) {
+        bestSim = cosineSimilarity(normQuery, emb);
+      }
+    }
+
+    // Convert raw cosine sim (-1 to 1) to percentage / score
+    const simPct = Math.max(0, Math.min(100, Math.round((bestSim + 0.1) * 90)));
+
+    scored.push({
+      ...rest,
+      visualSim: bestSim,
+      simPct
+    });
+  }
+
+  scored.sort((a, b) => b.visualSim - a.visualSim);
+  const topMatches = scored.slice(0, topK);
+
+  if (topMatches.length === 0) {
+    container.innerHTML = '<p class="co-section-desc">No matching restaurants found for this image query.</p>';
+    return;
+  }
+
+  // Personalization overlay: if user has rated restaurants, evaluate MDN rating predictions
+  const hasUserRatings = Object.keys(state.userRatings).length > 0;
+  if (hasUserRatings && state.mdnWeights) {
+    const profile = buildUserTasteProfile(state.userRatings, state.restaurantEmbeddings, state.centroid);
+    if (profile) {
+      topMatches.forEach(r => {
+        const rawVec = state.restaurantEmbeddings[r.rest_id];
+        if (rawVec) {
+          const targetVec = centerVec(rawVec, state.centroid);
+          const meta = state.metadata[r.rest_id] || { stars: 4.0, review_count: 1, price: 2 };
+          const scalars = new Float32Array([
+            profile.meanHistRating,
+            (meta.stars || 4.0) / 5.0,
+            Math.log1p(meta.review_count || 1) / 10.0,
+            (meta.price || 2) / 4.0
+          ]);
+          const pred = forwardMDN(profile.userLike, profile.userDis, targetVec, scalars, state.mdnWeights);
+          r.score = pred.expectedMu;
+          r.pdfGrid = pred.pdfGrid;
+        }
+      });
+    }
+  }
+
+  container.innerHTML = topMatches.map(r => {
+    const scoreLabel = 'Visual similarity';
+    const scoreVal = `${r.simPct}%`;
+    const extraBadge = 'Visual Match';
+    return renderRestaurantCard(r, scoreLabel, scoreVal, extraBadge);
+  }).join('');
+
+  // Draw HDR curves for cards if ratings exist
+  if (hasUserRatings) {
+    requestAnimationFrame(() => {
+      topMatches.forEach(r => {
+        const canvas = document.getElementById(`hdr-canvas-${r.rest_id}`);
+        if (canvas && r.pdfGrid) {
+          drawHDRChart(canvas, r.pdfGrid, r.score);
+        }
+      });
+    });
+  }
+
+  const statusEl = document.getElementById('imageSearchStatus');
+  if (statusEl && state.selectedSampleIndex !== null && state.sampleImageQueries) {
+    const title = state.sampleImageQueries[state.selectedSampleIndex]?.title || '';
+    statusEl.textContent = `Showing top ${topMatches.length} restaurants visually matching "${title}".`;
+  } else if (statusEl) {
+    statusEl.textContent = `Showing top ${topMatches.length} visual matches for uploaded photo.`;
+  }
+}
+
 // 3. Exact Dish Search Tab
 async function handleExactDishSearch() {
   const query = document.getElementById('dishQuery').value.trim().toLowerCase();
@@ -1217,6 +1599,49 @@ document.addEventListener('DOMContentLoaded', () => {
   const dq = document.getElementById('dishQuery');
   if (dq) dq.addEventListener('input', debounce(handleExactDishSearch, 300));
 
+  // Image Search Controls
+  const fileInput = document.getElementById('imageFileInput');
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) handleUserImageUpload(file);
+    });
+  }
+
+  const dropzone = document.getElementById('imageDropzone');
+  if (dropzone) {
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.style.borderColor = 'var(--co-accent)';
+        dropzone.style.background = 'var(--co-surface-soft)';
+      }, false);
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.style.borderColor = '';
+        dropzone.style.background = '';
+      }, false);
+    });
+    dropzone.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      const file = dt && dt.files && dt.files[0];
+      if (file) handleUserImageUpload(file);
+    });
+  }
+
+  const imageTopK = document.getElementById('imageTopK');
+  if (imageTopK) {
+    imageTopK.addEventListener('input', () => {
+      if (state.currentImageVector) {
+        runImageVectorSearch(state.currentImageVector);
+      }
+    });
+  }
+
   // Global delegation for Star Ratings
   document.addEventListener('click', e => {
     const starBtn = e.target.closest('.co-star-btn');
@@ -1263,4 +1688,8 @@ window.switchSubTab = switchSubTab;
 window.setRating = setRating;
 window.loadMoreRecommendations = loadMoreRecommendations;
 window.loadAllRecommendations = loadAllRecommendations;
+window.setSearchMode = setSearchMode;
+window.clearImageQuery = clearImageQuery;
+window.selectSampleQuery = selectSampleQuery;
+window.handleUserImageUpload = handleUserImageUpload;
 

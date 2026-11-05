@@ -88,10 +88,20 @@
       <div class="co-section-header">
         <div class="co-eyebrow">Discover</div>
         <h2 class="co-section-title">Multimodal Search</h2>
-        <p class="co-section-desc">Search across dishes, reviews, and restaurant profiles, or start with an image to explore the catalog visually.</p>
+        <p class="co-section-desc">Search across dishes, reviews, and restaurant profiles, or start with an image to explore the catalog visually using CLIP embeddings.</p>
       </div>
 
-      <div class="co-form-row">
+      <!-- Search Mode Switcher (Text vs Image) -->
+      <div class="co-search-mode-bar">
+        <span class="co-search-mode-label">Search by:</span>
+        <div class="co-mode-toggle-group">
+          <button class="co-mode-btn active" id="btnModeText" onclick="setSearchMode('text')">Text</button>
+          <button class="co-mode-btn" id="btnModeImage" onclick="setSearchMode('image')">Image</button>
+        </div>
+      </div>
+
+      <!-- TEXT SEARCH CONTROLS -->
+      <div id="textSearchControls" class="co-form-row">
         <div class="co-form-group">
           <label class="co-form-label" for="searchQuery">Enter a dish, description, or restaurant concept</label>
           <input type="text" id="searchQuery" class="co-input" placeholder="e.g. crispy duck tasting menu, intimate omakase, handmade pasta...">
@@ -111,8 +121,53 @@
         </div>
       </div>
 
+      <!-- IMAGE SEARCH CONTROLS -->
+      <div id="imageSearchControls" style="display: none; margin-bottom: 1.5rem;">
+        <div class="co-dropzone" id="imageDropzone" onclick="document.getElementById('imageFileInput').click()">
+          <div class="co-dropzone-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+              <circle cx="9" cy="9" r="2"/>
+              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+            </svg>
+          </div>
+          <p style="font-weight: 700; margin-bottom: 0.25rem;">Click to upload or drag &amp; drop a reference image</p>
+          <p class="co-section-desc" style="font-size: 0.85rem;">Supports JPG, PNG, WebP (food dishes, drinks, or interior dining)</p>
+          <input type="file" id="imageFileInput" accept="image/*" style="display: none;">
+        </div>
+
+        <!-- Selected Query Image Preview Card -->
+        <div id="queryImagePreviewWrap" style="display: none; margin-top: 1rem;" class="co-card">
+          <div style="display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap;">
+            <div style="width: 110px; height: 110px; border-radius: var(--co-radius-sm); overflow: hidden; border: 1px solid var(--co-border); flex-shrink: 0; background: var(--co-surface-soft);">
+              <img id="queryImagePreview" src="" alt="Query image" style="width: 100%; height: 100%; object-fit: cover;">
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+              <h4 id="queryImageTitle" style="font-size: 1.1rem; margin-bottom: 0.35rem;">Query Image</h4>
+              <p id="imageSearchStatus" class="co-section-desc" style="margin-bottom: 0.65rem;">Image similarity search active</p>
+              <button class="co-btn co-btn-secondary" style="padding: 0.35rem 0.85rem; font-size: 0.82rem;" onclick="clearImageQuery()">Remove Image</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sample Reference Food Queries -->
+        <div style="margin-top: 1.5rem;">
+          <p style="font-size: 0.88rem; font-weight: 700; color: var(--co-text-muted); margin-bottom: 0.65rem;">
+            Or choose a preset reference query to test visual search:
+          </p>
+          <div class="co-sample-image-grid" id="sampleImageGrid">
+            <!-- Populated dynamically from sample_image_queries.json -->
+          </div>
+        </div>
+
+        <div style="margin-top: 1.35rem; display: flex; align-items: center; gap: 0.75rem;">
+          <label class="co-form-label" style="margin-bottom: 0;" for="imageTopK">Top Results:</label>
+          <input type="number" id="imageTopK" class="co-input" min="3" max="25" value="6" style="max-width: 100px;">
+        </div>
+      </div>
+
       <div id="searchResults">
-        <p class="co-section-desc">Type a search query above to explore restaurants across the NYC Michelin catalog.</p>
+        <p class="co-section-desc">Type a search query or select an image above to discover restaurants across the NYC Michelin catalog.</p>
       </div>
     </section>
 

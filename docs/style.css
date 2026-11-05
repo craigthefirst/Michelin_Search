@@ -581,6 +581,93 @@ body {
   justify-content: center;
 }
 
+/* Search Mode Switcher */
+.co-search-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 1.35rem;
+}
+
+.co-search-mode-label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--co-text);
+}
+
+.co-mode-toggle-group {
+  display: inline-flex;
+  background: var(--co-surface-soft);
+  border: 1px solid var(--co-border);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.co-mode-btn {
+  border: none;
+  background: transparent;
+  padding: 0.45rem 1.15rem;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--co-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.co-mode-btn:hover {
+  color: var(--co-text);
+}
+
+.co-mode-btn.active {
+  background: var(--co-accent);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(239, 106, 71, 0.32);
+}
+
+/* Sample Visual Query Cards */
+.co-sample-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.co-sample-card {
+  background: var(--co-surface);
+  border: 1px solid var(--co-border);
+  border-radius: var(--co-radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.co-sample-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--co-accent);
+  box-shadow: var(--co-shadow-sm);
+}
+
+.co-sample-card.active {
+  border-color: var(--co-accent-strong);
+  box-shadow: 0 0 0 2px rgba(239, 106, 71, 0.35);
+}
+
+.co-sample-thumb {
+  width: 100%;
+  height: 90px;
+  object-fit: cover;
+  display: block;
+}
+
+.co-sample-title {
+  padding: 0.45rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--co-ink);
+  line-height: 1.25;
+}
+
 /* Chart Canvas for MDN HDR */
 .co-chart-canvas-wrap {
   margin-top: 0.85rem;
